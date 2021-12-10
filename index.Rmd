@@ -75,9 +75,6 @@ ggplot()+geom_line(aes(x=1:10,y=sil_width))+scale_x_continuous(name="k",breaks=1
 pam1<-clust_dat%>%pam(k=2)
 pam1
 
-pamclust<-clust_dat%>%mutate(cluster=as.factor(pam1$clustering)) #save the cluster solution in your dataset
-pamclust%>%ggplot(aes(sample1,baseMean,color=cluster))+geom_point()#visualize it
-
 library(GGally)
 ggpairs(cleandatajoin, columns=2:8, aes(color=as.factor(pam1$clustering)))
 
@@ -232,7 +229,7 @@ I saved the first half of a sentence in an R studio variable. Then, I saved the 
 
 ### Concluding Remarks
 
-Although there seems to be slight overfitting in the dataset, the AUC numbers seem to be very good. Running a logistic fit seemed to be the best option for this dataset. I am excited that I was able to find the probabilities that the genes are detection_call 1 meaning that they are expressed because this could potentially be a gateway in predicting whether a cell will become a myeloma cell. In this way, we would be able to do genetic screening and pay closer attention to cells that contain these genes. 
+Although there seems to be slight overfitting in the dataset, the AUC numbers seem to be very good. Running a logistic fit seemed to be the best option for this dataset. I am excited that I was able to find the probabilities that the genes are detection_call 1 meaning that they are expressed because this could potentially be a gateway in predicting whether a cell will become a myeloma cell. In this way, we would be able to do genetic screening and pay closer attention to cells that contain these genes. Additionally, the postive and negative correlations in the dataset also provide information as to what to look for with these particular genes.
 
 
 
