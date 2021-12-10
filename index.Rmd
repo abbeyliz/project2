@@ -46,92 +46,193 @@ class_diag <- function(score, truth, positive, cutoff=.5){
 
 # Mining, Classification, Prediction
 
-## Name and EID here
+## Abbey Flynn
 
 ### Introduction 
 
-Paragraph or two introducing your datasets and variables, why they are interesting to you, etc. See instructions for more information
-
 ```{R}
 library(tidyverse)
-# read your datasets in here, e.g., with read_csv()
-
-# if your dataset needs tidying, do so here
-
-# any other code here
+cleandatajoin <- read_csv("~/project2/projectdata.csv")
 ```
+I chose to continue to work with my joined data from Project 1 because this additional analysis may allow me to better analyze how these two datasets are related. As a reminder, the first data set was differential gene expression analysis results obtained from comparing the RNAseq data of two different cell populations using DESeq. It contained variables for gene names, mean expression signal across all samples, log2 fold change, adjusted p-value, and a numeric vector specifying whether the gene is expressed or not. The second dataset was one that contains the genome-wide gene expression values from 3 multiple myeloma cancer cell line samples. The variables in this dataset include gene names and 3 sample log2 transformed normalized expression count values. 
+
+In this Project, I want to further analyze the possibility that these cells could be cancerous myeloma cells. I can hypothesize that those with higher correlation values will likely become a multiple myeloma cell or may already be one. As mentioned in the previous project, this information could be helpful in that it can help take preventative measures to catch myeloma cancer cells early if a cell is found to express this gene. 
 
 ### Cluster Analysis
 
 ```{R}
 library(cluster)
-# clustering code here
+
+clust_dat <-cleandatajoin%>%dplyr::select(sample1,sample2, sample3, baseMean)
+sil_width<-vector() #empty vector to hold mean sil width
+for(i in 2:10){  
+  kms <- kmeans(clust_dat,centers=i) #compute k-means solution
+  sil <- silhouette(kms$cluster,dist(clust_dat)) #get sil widths
+  sil_width[i]<-mean(sil[,3]) #take averages (higher is better)
+}
+ggplot()+geom_line(aes(x=1:10,y=sil_width))+scale_x_continuous(name="k",breaks=1:10)
+
+pam1<-clust_dat%>%pam(k=2)
+pam1
+
+pamclust<-clust_dat%>%mutate(cluster=as.factor(pam1$clustering)) #save the cluster solution in your dataset
+pamclust%>%ggplot(aes(sample1,baseMean,color=cluster))+geom_point()#visualize it
+
+library(GGally)
+ggpairs(cleandatajoin, columns=2:8, aes(color=as.factor(pam1$clustering)))
+
 ```
 
-Discussion of clustering here
-    
+First, in order to find which clustering amount would be a good fit I ran the silhouette width function. This allowed me to find that the goodness of fit, best k, is equal to 2 because this is where the graph had the highest silhouette width. I then used pam clustering and ggpairs to be able to graph the relationships between all of the variables. I found that the clusters in detection_call are extremely distinct almost on the opposite spectrum of each other. For Log2FoldChange, the clusters are almost exactly the same. It is interesting to me that sample2 and sample3 both have high peaks for cluster one but then are more flat for cluster2. Overall, I found that most of the correlations are positive. 
     
 ### Dimensionality Reduction with PCA
 
 ```{R}
-# PCA code here
+cleandatajoin_pca <- cleandatajoin %>% select(-name) %>% scale %>% princomp
+summary(cleandatajoin_pca, loadings=T)
+library(factoextra)
+fviz_pca_biplot(cleandatajoin_pca, ) + coord_fixed() + theme(legend.position="none")
 ```
 
-Discussions of PCA here. 
+High PCs mean high variance and low PCs mean low variance. For PC1, the proportion of variance is 0.38 and for PC2, the proportion of variance is 0.2. This makes sense because usually PC1 captures the most variation among the data set. In PC1, baseMean, log2FoldChange, detection_call, sample1, sample2, and sample3 all contribute positively where as padj contributes negatively. On the other hand, in PC2, log2FoldChange, padj, sample1, sample2, and sample3 all contribute negatively and baseMean and detection_call contribute positively. The biplot is very interesting and seemingly cluttered because there are 867 genes to be looking at. However, you can definitely see the general relation that each column has to the data.
 
 ###  Linear Classifier
 
 ```{R}
 # linear classifier code here
+logistic_fit <- glm(detection_call ~ baseMean + sample1+sample2+sample3, data=cleandatajoin, family="binomial")
+prob_reg <- predict(logistic_fit,type="response")
+prob_reg
+class_diag(prob_reg,cleandatajoin$detection_call,positive=1)
+
+#confusion matrix
+y <-cleandatajoin$detection_call
+y<- factor(y, levels=c(1,0))
+y_hat <- prob_reg > 0.5
+y
+y_hat
+y_hat <- factor(y_hat, levels=c(T,F))
+table(actual = y, predicted = y_hat)
+
+#CV
+set.seed(322)
+k=10
+data<-sample_frac(cleandatajoin) #randomly order rows
+folds <- rep(1:k, length.out=nrow(cleandatajoin)) #create folds
+diags<-NULL
+i=1
+for(i in 1:k){
+
+# create training and test sets
+train<-data[folds!=i,] 
+test<-data[folds==i,] 
+truth<-test$detection_call
+# train model
+fit <- glm(detection_call ~ baseMean + sample1+sample2+sample3, data=train,family="binomial")
+# test model
+probs <- predict(fit,newdata = test,type="response")
+# get performance metrics for each fold
+diags<-rbind(diags,class_diag(probs,truth, positive=1)) }
+#average performance metrics across all folds
+summarize_all(diags,mean)
 ```
 
-```{R}
-# cross-validation of linear classifier here
-```
+Based on the probability model, we were able to find which genes have the largest chance of having detection call 1 which means that it is most likely expressed in myeloma cells. This prob_reg variable is helpful to know because this may help determine which genes to look for when observing whether a cell will become a myeloma cell. In terms of AUC, this data is great! The higher the AUC, the better the performance of the model at distinguishing between the positive and negative classes. Therefore, this model does a great job of doing so. There also does not seem to be overfitting here because both the test and cross validation values have an AUC of 0.973.
 
-Discussion here
 
 ### Non-Parametric Classifier
 
 ```{R}
-library(caret)
 # non-parametric classifier code here
+library(caret)
+knn_fit <- knn3(detection_call ~ baseMean + sample1+sample2+sample3, data=cleandatajoin)
+prob_knn <- predict(knn_fit,cleandatajoin)
+prob_knn
+class_diag(prob_knn[,2],cleandatajoin$detection_call, positive=1)
+
+#confusion matrix part
+table(truth= factor(cleandatajoin$detection_call==1, levels=c("TRUE","FALSE")),
+      prediction= factor(prob_knn[,2]>.5, levels=c("TRUE","FALSE")))
+
+#train the model ##having issues with the cross validation part
+## your code here
+set.seed(1234)
+k=10 #choose number of folds
+data1 <-cleandatajoin[sample(nrow(cleandatajoin)),] #randomly order rows
+folds1 <-cut(seq(1:nrow(cleandatajoin)),breaks=k,labels=F) #create folds
+diags1<-NULL
+for(i in 1:k){
+  ## Create training and test sets
+  train1 <-data[folds1!=i,] 
+  test1 <-data[folds1==i,]
+  truth1 <-test1$detection_call ## Truth labels for fold i
+  ## Train model on training set (all but fold i)
+  fit1 <- knn3(detection_call ~ baseMean + sample1+sample2+sample3, data=cleandatajoin)
+  ## Test model on test set (fold i) 
+  probs1 <-predict(fit,newdata = test, type = "response")
+  ## Get diagnostics for fold i
+  diags1<-rbind(diags1,class_diag(probs,truth, positive=1))
+}
+summarize_all(diags1,mean)
+
 ```
-
-```{R}
-# cross-validation of np classifier here
-```
-
-Discussion
-
+Using the non-parametric classifier also gives a great AUC. This one is actually better than the logistic model with an AUC of 0.9874. That is pretty close to perfect! The only downfall of this analysis is that there shows more signs of over fitting because the CV has an AUC value of 0.9795. This just means that the model is able to predict itself really well but when you take it to the test data it starts to make bad predictions. I am still very impressed by the AUC of this data set.
 
 ### Regression/Numeric Prediction
 
 ```{R}
 # regression model code here
-```
+fit2 <-lm(detection_call ~ baseMean + sample1+sample2+sample3,data=cleandatajoin) 
+yhat1<-predict(fit2)
 
-```{R}
-# cross-validation of regression model here
-```
 
-Discussion
+##MSE for the overall data set
+mean((cleandatajoin$detection_call-yhat1)^2) #mean squared error (MSE)
+
+#cross-validation
+
+set.seed(1234)
+k=5 #choose number of folds
+data2 <-cleandatajoin[sample(nrow(cleandatajoin)),] #randomly order rows
+folds2 <-cut(seq(1:nrow(cleandatajoin)),breaks=k,labels=F) #create folds
+diags2 <-NULL
+for(i in 1:k){
+  train2 <-data[folds2!=i,]
+  test2 <-data[folds2==i,]
+  ## Fit linear regression model to training set
+  fit2 <-lm(detection_call ~ baseMean + sample1+sample2+sample3,data=train)
+  ## Get predictions/y-hats on test set (fold i)
+  yhat2 <-predict(fit2,newdata=test)
+  ## Compute prediction error  (MSE) for fold i
+  diags2 <-mean((test$detection_call-yhat1)^2) 
+}
+mean(diags2) ## get average MSE across all folds (much higher error)!
+
+```
+The MSE will tell us how close the regression line is to our set of points. For the overall data set is 0.161 which is very low meaning that the model is pretty accurate. However, since the MSE of my CV is 0.212 there is overfitting because the mean is much higher for the k testing folds. This CV value is still very small so the I can hypothesize that the data set is still accurate even in the test data.
 
 ### Python 
 
 ```{R}
 library(reticulate)
+use_python("/usr/bin/python3", required = F)
+geneName<-"The particular genes that we will find in this data set"
 ```
 
 ```{python}
 # python code here
+expression="are said to be expressed based on the detection_call being 1 or 0."
+print(r.geneName,expression)
+```
+```{R}
+cat(c(geneName,py$expression))
 ```
 
-Discussion
+I saved the first half of a sentence in an R studio variable. Then, I saved the other half of the sentence into the python code chunk. Using the r.geneName accesses the R defined object with r. The py$expression accesses the Python-defined object. Then, using the print and cat functions I was able to combine both of these different languages to form a sentence in both R and python. 
 
 ### Concluding Remarks
 
-Include concluding remarks here, if any
+Although there seems to be slight overfitting in the dataset, the AUC numbers seem to be very good. Running a logistic fit seemed to be the best option for this dataset. I am excited that I was able to find the probabilities that the genes are detection_call 1 meaning that they are expressed because this could potentially be a gateway in predicting whether a cell will become a myeloma cell. In this way, we would be able to do genetic screening and pay closer attention to cells that contain these genes. 
 
 
 
